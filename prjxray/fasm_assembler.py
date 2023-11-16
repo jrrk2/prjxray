@@ -119,6 +119,10 @@ class FasmAssembler(object):
             frame_addr = bit.word_column
             word_addr = bit.word_bit // bitstream.WORD_SIZE_BITS
             bit_index = bit.word_bit % bitstream.WORD_SIZE_BITS
+
+            if word_addr >= 101:
+                print(f"invalid word address {word_addr} in feature: {feature} line: {line}")
+
             if bit.isset:
                 self.frame_set(frame_addr, word_addr, bit_index, line)
             else:
