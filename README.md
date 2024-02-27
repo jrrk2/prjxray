@@ -1,5 +1,9 @@
 # Project X-Ray
 
+This is the start of a new project to merge Virtex7 support into symbiflow.
+
+Do not merge. This version has been destructively modified to convert 3.3V IO banks to 1.8V
+
 [![Documentation Status](https://img.shields.io/readthedocs/prjxray?longCache=true&style=flat-square&logo=ReadTheDocs&logoColor=fff)](http://prjxray.readthedocs.org/)
 [![License](https://img.shields.io/github/license/f4pga/prjxray.svg?longCache=true&style=flat-square&label=License)](https://github.com/f4pga/prjxray/blob/master/LICENSE)
 ![GitHub Actions](https://img.shields.io/github/actions/workflow/status/f4pga/prjxray/Automerge.yml?branch=master&longCache=true&style=flat-square&label=GHA&logo=Github%20Actions&logoColor=fff)
