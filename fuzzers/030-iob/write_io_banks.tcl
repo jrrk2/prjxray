@@ -17,7 +17,7 @@ foreach iobank [get_iobanks] {
 close $fp
 
 set fp [open "cmt_regions.csv" "w"]
-foreach site_type { IOB33M IOB33S IDELAYCTRL} {
+foreach site_type { IOB18M IOB18S IDELAYCTRL} {
     foreach site [get_sites -filter "SITE_TYPE == $site_type"] {
         set tile [get_tiles -of $site]
         # exclude IDELAYCTRL from high speed banks
@@ -30,7 +30,7 @@ close $fp
 
 set fp [open "pudc_sites.csv" "w"]
 puts $fp "tile,site"
-foreach tile [get_tiles *IOB33*] {
+foreach tile [get_tiles *IOB18*] {
     foreach site [get_sites -of_objects $tile] {
         set site_type [get_property SITE_TYPE $site]
 

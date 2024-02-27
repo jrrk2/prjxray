@@ -15,7 +15,7 @@ proc make_io_pin_sites {} {
         if {[llength $site] == 0} {
             continue
         }
-        if [string match IOB33* [get_property SITE_TYPE $site]] {
+        if [string match IOB18* [get_property SITE_TYPE $site]] {
             dict append io_pin_sites $site $pad
         }
     }

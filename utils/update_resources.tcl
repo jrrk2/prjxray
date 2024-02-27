@@ -11,15 +11,9 @@
 link_design -part $::env(XRAY_PART)
 
 # one pin -> 0
-set clk_pins [get_package_pins -filter "IS_CLK_CAPABLE"]
+set clk_pins [get_package_pins -filter "IS_CLK_CAPABLE==1"]
 
-# three pins -> 1, 2, 3 on HR banks only
-set banks [get_iobanks -filter "BANK_TYPE==BT_HIGH_RANGE"]
-
-set data_pins ""
-foreach bank [split $banks " "] {
-    append data_pins " " [get_package_pins -filter "IS_GENERAL_PURPOSE && BANK==$bank"]
-}
+set data_pins [get_package_pins -filter "IS_GENERAL_PURPOSE"]
 
 set fp [open $::env(TMP_FILE) w]
 

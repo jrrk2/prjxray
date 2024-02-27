@@ -14,7 +14,7 @@ proc make_io_pin_sites {} {
         if {[llength $site] == 0} {
             continue
         }
-        if [string match IOB33* [get_property SITE_TYPE $site]] {
+        if [string match IOB18* [get_property SITE_TYPE $site]] {
             dict append io_pin_sites $site $pad
         }
     }
@@ -96,7 +96,7 @@ proc run {} {
             [dict create DRIVE [list 4 8 12 16 24] SLEW [list SLOW FAST]] \
             LVCMOS25 \
             [dict create DRIVE [list 4 8 12 16] SLEW [list SLOW FAST]] \
-            LVCMOS33 \
+            LVCMOS18 \
             [dict create DRIVE [list 4 8 12 16] SLEW [list SLOW FAST]] \
             LVTTL \
             [dict create DRIVE [list 4 8 12 16 24] SLEW [list SLOW FAST]] \

@@ -14,7 +14,7 @@ proc make_io_pin_sites {} {
         if {[llength $site] == 0} {
             continue
         }
-        if [string match IOB33* [get_property SITE_TYPE $site]] {
+        if [string match IOB18* [get_property SITE_TYPE $site]] {
             dict append io_pin_sites $site $pad
         }
     }
@@ -58,7 +58,7 @@ proc loc_pins {} {
         set tile [get_tiles -of_objects $site]
 
         set pin [dict get $io_pin_sites $site]
-        set_property -dict "PACKAGE_PIN $pin IOSTANDARD LVCMOS33" $port
+        set_property -dict "PACKAGE_PIN $pin IOSTANDARD LVCMOS18" $port
     }
 }
 
