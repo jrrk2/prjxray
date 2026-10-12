@@ -9,7 +9,7 @@ N ?= 8
 
 include ../fuzzer.mk
 
-database: build/segbits_dsp_l.db build/segbits_dsp_r.db
+database: build/segbits_dsp_l.db build/segbits_dsp_r.db build/mask_dsp_l.db build/mask_dsp_r.db
 
 SEGDATAS_L=$(addsuffix /segdata_dsp_l.txt,$(SPECIMENS))
 SEGDATAS_R=$(addsuffix /segdata_dsp_r.txt,$(SPECIMENS))
@@ -19,14 +19,18 @@ build/segbits_dsp_l.rdb: $(SPECIMENS_OK)
 
 build/segbits_dsp_l.db: build/segbits_dsp_l.rdb
 	${XRAY_DBFIXUP} --db-root build --zero-db bits.dbf --seg-fn-in $^ --seg-fn-out $@
-	${XRAY_MASKMERGE} build/mask_dsp_l.db $(SEGDATAS_L)
+
+build/mask_dsp_l.db: $(SPECIMENS_OK)
+	${XRAY_MASKMERGE} $@ $(SEGDATAS_L)
 
 build/segbits_dsp_r.rdb: $(SPECIMENS_OK)
 	${XRAY_SEGMATCH} -o build/segbits_dsp_r.rdb $(SEGDATAS_R)
 
 build/segbits_dsp_r.db: build/segbits_dsp_r.rdb
 	${XRAY_DBFIXUP} --db-root build --zero-db bits.dbf --seg-fn-in $^ --seg-fn-out $@
-	${XRAY_MASKMERGE} build/mask_dsp_r.db $(SEGDATAS_R)
+
+build/mask_dsp_r.db: $(SPECIMENS_OK)
+	${XRAY_MASKMERGE} $@ $(SEGDATAS_R)
 
 pushdb: database
 	${XRAY_MERGEDB} dsp_l build/segbits_dsp_l.db
