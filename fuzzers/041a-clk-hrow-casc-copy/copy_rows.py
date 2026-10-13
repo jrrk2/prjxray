@@ -42,14 +42,19 @@ not measurable in the target database:
      must exist there too (the hole is in the segbits, never in the tile
      structure);
   5. every bit the rows use must be in the target's mask_clk_hrow_*.db;
-     the bits missing there may only be bits artix7's mask has.
+     the bits missing there may only be bits artix7's mask has, and the
+     target's mask may not have a bit artix7's lacks.
 
-Without --apply it only reports. With --apply it appends the rows (with
-`origin:041a-clk-hrow-casc-copy` in the .origin_info.db) and the mask bits,
-and re-canonicalizes the touched files with utils/sort_db.py so no
-pre-existing line moves.
+Without --apply it only reports. With --apply it holds the family directory
+locked for the whole run and works out each file on its own: the rows the
+segbits lack, an `origin:041a-clk-hrow-casc-copy` line in the
+.origin_info.db for every row that has none (every other row has one), and
+the mask bits. Then it re-canonicalizes the six files with
+utils/sort_db.py, so no pre-existing line moves. A run that stopped halfway
+is completed by the next one.
 """
 import argparse
+import fcntl
 import json
 import os
 import subprocess
@@ -144,9 +149,26 @@ def missing_rows(db_root, family, tile, errors):
     return candidates
 
 
+def missing_origins(db_root, family, tile, rows):
+    segbits = load_segbits(db_root / family / f"segbits_{tile}.db")
+    segbits.update(rows)
+    origin = db_root / family / f"segbits_{tile}.origin_info.db"
+    known = {
+        line.split()[0]
+        for line in origin.read_text().splitlines()
+        if line.strip()
+    }
+    return {k: v for k, v in sorted(segbits.items()) if k not in known}
+
+
 def missing_mask_bits(db_root, family, tile, rows, errors):
     src = load_mask(db_root / SOURCE_FAMILY / f"mask_{tile}.db")
     dst = load_mask(db_root / family / f"mask_{tile}.db")
+    extra = sorted(dst - src)
+    if extra:
+        errors.append(
+            f"{family}/{tile}: {len(extra)} mask bits not present in "
+            f"{SOURCE_FAMILY} (first: {extra[0]})")
     segbits = load_segbits(db_root / family / f"segbits_{tile}.db")
     segbits.update(rows)
     used = {b.lstrip("!") for v in segbits.values() for b in v.split()}
@@ -182,9 +204,19 @@ def main():
         help="append the rows and re-canonicalize (default: report only)")
     args = parser.parse_args()
 
+    if args.apply:
+        # Two runs at once would both append the same lines: the second one
+        # waits here and then reads what the first one wrote.
+        fcntl.flock(
+            os.open(args.db_root / args.family, os.O_RDONLY), fcntl.LOCK_EX)
+
     errors = []
     per_tile = {
         tile: missing_rows(args.db_root, args.family, tile, errors)
+        for tile in TILES
+    }
+    origins = {
+        tile: missing_origins(args.db_root, args.family, tile, per_tile[tile])
         for tile in TILES
     }
     mask_bits = {
@@ -209,6 +241,9 @@ def main():
             f", {len(mask_bits[tile])} mask bits to add")
         for k, v in rows.items():
             print(f"  {k} {v}")
+        for k in origins[tile]:
+            if k not in rows:
+                print(f"  origin line for {k}")
         for b in mask_bits[tile]:
             print(f"  mask bit {b}")
         total += len(rows)
@@ -220,24 +255,25 @@ def main():
     prjxray_root = Path(__file__).resolve().parent.parent.parent
     sort_db = prjxray_root / "utils" / "sort_db.py"
     touched = []
-    for tile, rows in per_tile.items():
-        if rows:
-            segbits = args.db_root / args.family / f"segbits_{tile}.db"
-            origin = args.db_root / args.family / \
-                f"segbits_{tile}.origin_info.db"
+    for tile in TILES:
+        segbits = args.db_root / args.family / f"segbits_{tile}.db"
+        origin = args.db_root / args.family / f"segbits_{tile}.origin_info.db"
+        mask = args.db_root / args.family / f"mask_{tile}.db"
+        if per_tile[tile]:
             with segbits.open("a") as f:
-                for k, v in rows.items():
+                for k, v in per_tile[tile].items():
                     f.write(f"{k} {v}\n")
+        if origins[tile]:
             with origin.open("a") as f:
-                for k, v in rows.items():
+                for k, v in origins[tile].items():
                     f.write(f"{k} origin:{ORIGIN} {v}\n")
-            touched += [segbits, origin]
         if mask_bits[tile]:
-            mask = args.db_root / args.family / f"mask_{tile}.db"
             with mask.open("a") as f:
                 for b in mask_bits[tile]:
                     f.write(f"bit {b}\n")
-            touched.append(mask)
+        # All three, even with nothing added: a run that stopped before
+        # sorting left lines appended at the end.
+        touched += [segbits, origin, mask]
     env = dict(os.environ, PYTHONPATH=str(prjxray_root))
     for path in touched:
         subprocess.check_call(
@@ -245,9 +281,7 @@ def main():
              str(path.resolve())],
             cwd=prjxray_root,
             env=env)
-    print(
-        f"{total} rows appended and canonicalized in "
-        f"{len(touched)} files")
+    print(f"{total} rows appended, {len(touched)} files canonicalized")
     return 0
 
 

@@ -60,13 +60,16 @@ The rows are not fuzzed here; they are copied from artix7. The premise is
 measured, not assumed: every row key these families share with artix7 in
 the two segbits files is bit-identical (zynq7: 2836/2836 in bot_r,
 2582/2582 in top_r; spartan7: 2836/2836 in both), the target has no row
-artix7 lacks, the pips exist in the zynq7/spartan7
+and no mask bit artix7 lacks, the pips exist in the zynq7/spartan7
 `tile_type_CLK_HROW_*.json` (and so do the wires of the `_ACTIVE` rows),
 none of the copied bit patterns collides with an existing row, and every
 bit the rows use is in the artix7 mask. `copy_rows.py` recomputes all of
 that and refuses to write if any of it stops being true. It also
-re-canonicalizes the touched files with `utils/sort_db.py`, so the diff
-it produces is insertions-only.
+re-canonicalizes the files with `utils/sort_db.py`, so the diff it
+produces is insertions-only. It holds the family directory locked while
+it runs, and it works out the segbits rows, the origin lines and the mask
+bits each on its own, so a run that stopped halfway is completed by the
+next one.
 
 ```
 python3 copy_rows.py zynq7    --db-root <prjxray-db> --apply
