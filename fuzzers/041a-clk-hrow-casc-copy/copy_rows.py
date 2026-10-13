@@ -8,37 +8,46 @@
 # https://opensource.org/licenses/ISC
 #
 # SPDX-License-Identifier: ISC
-"""Copy the missing CLK_HROW BUFG-cascade rows from artix7 into a sibling
-7-series family database.
+"""Copy the missing CLK_HROW rows from artix7 into a sibling 7-series
+family database.
 
 CLK_HROW_BOT_R and CLK_HROW_TOP_R are the same tile type on every 7-series
 family, and the rows both families already resolved are bit-identical
-(measured: every one of the 2804 shared bot_r rows and every shared top_r
-row, zynq7 and spartan7 against artix7). What is missing on the sibling
-side is a subset of the CK_BUFG_CASCO rows that artix7's 041-clk-hrow-pips
-population resolved and the sibling's did not:
+(measured: every shared row of the two segbits files, zynq7 and spartan7
+against artix7). What is missing on the sibling side is a subset of the rows
+that artix7's 041-clk-hrow-pips population resolved and the sibling's did
+not:
 
   * the 32 pass-through rows `CK_BUFG_CASCO<i> <- CK_BUFG_CASCIN<i>`
     (zynq7 and spartan7 bot_r): the vertical hop a pad clock takes through
     each CLK_HROW tile between its entry row and the central BUFGs.
   * the 448 fan-in rows `CK_BUFG_CASCO<i> <- CK_BUFRCLK_L*/CK_IN_L*`
     (zynq7 top_r): the entry of a left-side row clock onto the cascade.
+  * the 240 BUFH rows `CK_MUX_OUT_L<i>/CK_MUX_OUT_R<i> <- CK_IN_L4..13`
+    (zynq7 top_r): the same left-side row clocks into the BUFHs.
+  * the 14 `CLK_HROW_CK_IN_L4..13_ACTIVE` / `CLK_HROW_CK_BUFRCLK_L0..3_ACTIVE`
+    rows (zynq7 top_r): the enable of each of those left-side wires, set
+    whenever the wire carries a clock.
 
 This tool copies exactly those rows, and refuses to run if the premise is
 not measurable in the target database:
 
   1. every row key shared with artix7 must be bit-identical (whole file,
-     not just the CASC rows);
-  2. the target may not have any CASC row artix7 lacks;
+     not just the copied classes);
+  2. the target may not have any row artix7 lacks;
   3. no copied bit pattern may collide with (equal) an existing row's
      pattern, or another copied row's;
-  4. every copied row's pip must exist in the target family's
-     tile_type_CLK_HROW_*.json (the hole is in the segbits, never in the
-     tile structure).
+  4. every copied pip row's pip must exist in the target family's
+     tile_type_CLK_HROW_*.json, and every copied `<wire>_ACTIVE` row's wire
+     must exist there too (the hole is in the segbits, never in the tile
+     structure);
+  5. every bit the rows use must be in the target's mask_clk_hrow_*.db;
+     the bits missing there may only be bits artix7's mask has.
 
 Without --apply it only reports. With --apply it appends the rows (with
-`origin:041a-clk-hrow-casc-copy` in the .origin_info.db) and re-canonicalizes
-the touched files with utils/sort_db.py so no pre-existing line moves.
+`origin:041a-clk-hrow-casc-copy` in the .origin_info.db) and the mask bits,
+and re-canonicalizes the touched files with utils/sort_db.py so no
+pre-existing line moves.
 """
 import argparse
 import json
@@ -66,13 +75,21 @@ def bit_pattern(bits):
     return frozenset(bits.split())
 
 
-def tile_pips(db_root, family, tile):
+def load_mask(path):
+    return {
+        line.split()[1]
+        for line in path.read_text().splitlines()
+        if line.strip()
+    }
+
+
+def tile_type_json(db_root, family, tile):
     tile_json = db_root / family / f"tile_type_{tile.upper()}.json"
     with tile_json.open() as f:
-        return set(json.load(f)["pips"].keys())
+        return json.load(f)
 
 
-def missing_casc_rows(db_root, family, tile, errors):
+def missing_rows(db_root, family, tile, errors):
     src = load_segbits(db_root / SOURCE_FAMILY / f"segbits_{tile}.db")
     dst = load_segbits(db_root / family / f"segbits_{tile}.db")
 
@@ -84,17 +101,13 @@ def missing_casc_rows(db_root, family, tile, errors):
             f"{SOURCE_FAMILY} (first: {differing[0]}); the copy premise "
             f"does not hold")
 
-    extra = sorted(k for k in dst if "CASC" in k and k not in src)
+    extra = sorted(k for k in dst if k not in src)
     if extra:
         errors.append(
-            f"{family}/{tile}: {len(extra)} CASC rows not present in "
+            f"{family}/{tile}: {len(extra)} rows not present in "
             f"{SOURCE_FAMILY} (first: {extra[0]})")
 
-    candidates = {
-        k: src[k]
-        for k in sorted(src)
-        if "CASC" in k and k not in dst
-    }
+    candidates = {k: src[k] for k in sorted(src) if k not in dst}
 
     dst_patterns = {bit_pattern(v): k for k, v in dst.items()}
     seen = {}
@@ -110,19 +123,48 @@ def missing_casc_rows(db_root, family, tile, errors):
                 f"copied row {seen[pattern]}")
         seen[pattern] = k
 
-    pips = tile_pips(db_root, family, tile)
+    tile_type = tile_type_json(db_root, family, tile)
     for k in candidates:
-        tile_name, dst_wire, src_wire = k.split(".")
-        pip = f"{tile_name}.{src_wire}->>{dst_wire}"
-        if pip not in pips:
-            errors.append(
-                f"{family}/{tile}: pip {pip} is not in the {family} "
-                f"tile_type_{tile.upper()}.json")
+        parts = k.split(".")
+        if len(parts) == 3:
+            tile_name, dst_wire, src_wire = parts
+            pip = f"{tile_name}.{src_wire}->>{dst_wire}"
+            if pip not in tile_type["pips"]:
+                errors.append(
+                    f"{family}/{tile}: pip {pip} is not in the {family} "
+                    f"tile_type_{tile.upper()}.json")
+        else:
+            wire = parts[1][:-len("_ACTIVE")]
+            if not parts[1].endswith("_ACTIVE") or \
+                    wire not in tile_type["wires"]:
+                errors.append(
+                    f"{family}/{tile}: {k} is not the _ACTIVE row of a "
+                    f"wire of the {family} tile_type_{tile.upper()}.json")
 
     return candidates
 
 
+def missing_mask_bits(db_root, family, tile, rows, errors):
+    src = load_mask(db_root / SOURCE_FAMILY / f"mask_{tile}.db")
+    dst = load_mask(db_root / family / f"mask_{tile}.db")
+    segbits = load_segbits(db_root / family / f"segbits_{tile}.db")
+    segbits.update(rows)
+    used = {b.lstrip("!") for v in segbits.values() for b in v.split()}
+    bits = sorted(used - dst)
+    outside = [b for b in bits if b not in src]
+    if outside:
+        errors.append(
+            f"{family}/{tile}: {len(outside)} bits used by a row are in "
+            f"neither mask (first: {outside[0]})")
+    return bits
+
+
 def classify(feature):
+    parts = feature.split(".")
+    if len(parts) == 2:
+        return "_ACTIVE"
+    if "MUX_OUT" in parts[1]:
+        return "BUFH"
     return "pass-through" if "CASCIN" in feature else "fan-in"
 
 
@@ -142,7 +184,12 @@ def main():
 
     errors = []
     per_tile = {
-        tile: missing_casc_rows(args.db_root, args.family, tile, errors)
+        tile: missing_rows(args.db_root, args.family, tile, errors)
+        for tile in TILES
+    }
+    mask_bits = {
+        tile: missing_mask_bits(
+            args.db_root, args.family, tile, per_tile[tile], errors)
         for tile in TILES
     }
     if errors:
@@ -158,9 +205,12 @@ def main():
         detail = ", ".join(f"{n} {c}" for c, n in sorted(counts.items()))
         print(
             f"{args.family}/{tile}: {len(rows)} rows to copy" +
-            (f" ({detail})" if detail else " (complete)"))
+            (f" ({detail})" if detail else " (complete)") +
+            f", {len(mask_bits[tile])} mask bits to add")
         for k, v in rows.items():
             print(f"  {k} {v}")
+        for b in mask_bits[tile]:
+            print(f"  mask bit {b}")
         total += len(rows)
 
     if not args.apply:
@@ -171,18 +221,23 @@ def main():
     sort_db = prjxray_root / "utils" / "sort_db.py"
     touched = []
     for tile, rows in per_tile.items():
-        if not rows:
-            continue
-        segbits = args.db_root / args.family / f"segbits_{tile}.db"
-        origin = args.db_root / args.family / \
-            f"segbits_{tile}.origin_info.db"
-        with segbits.open("a") as f:
-            for k, v in rows.items():
-                f.write(f"{k} {v}\n")
-        with origin.open("a") as f:
-            for k, v in rows.items():
-                f.write(f"{k} origin:{ORIGIN} {v}\n")
-        touched += [segbits, origin]
+        if rows:
+            segbits = args.db_root / args.family / f"segbits_{tile}.db"
+            origin = args.db_root / args.family / \
+                f"segbits_{tile}.origin_info.db"
+            with segbits.open("a") as f:
+                for k, v in rows.items():
+                    f.write(f"{k} {v}\n")
+            with origin.open("a") as f:
+                for k, v in rows.items():
+                    f.write(f"{k} origin:{ORIGIN} {v}\n")
+            touched += [segbits, origin]
+        if mask_bits[tile]:
+            mask = args.db_root / args.family / f"mask_{tile}.db"
+            with mask.open("a") as f:
+                for b in mask_bits[tile]:
+                    f.write(f"bit {b}\n")
+            touched.append(mask)
     env = dict(os.environ, PYTHONPATH=str(prjxray_root))
     for path in touched:
         subprocess.check_call(
