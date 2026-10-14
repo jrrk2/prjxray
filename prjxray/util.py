@@ -8,7 +8,12 @@
 # https://opensource.org/licenses/ISC
 #
 # SPDX-License-Identifier: ISC
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    # Windows: no fcntl (and no SIGALRM); OpenSafeFile degrades to a plain
+    # open without inter-process locking.
+    fcntl = None
 import math
 import os
 import random
@@ -47,6 +52,8 @@ class OpenSafeFile:
 
     def lock_file(self):
         assert self.fd is not None
+        if fcntl is None:
+            return
         try:
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(self.timeout)
@@ -58,6 +65,8 @@ class OpenSafeFile:
 
     def unlock_file(self):
         assert self.fd is not None
+        if fcntl is None:
+            return
         fcntl.flock(self.fd.fileno(), fcntl.LOCK_UN)
 
 
@@ -109,7 +118,7 @@ def get_part_resources(file_path, part):
     with open(filename, 'r') as stream:
         res_mapping = yaml.load(stream, Loader=yaml.FullLoader)
     res = res_mapping.get(part, None)
-    assert res, "Part {} not found in {}".format(part, part_mapping)
+    assert res, "Part {} not found in {}".format(part, res_mapping)
     return res
 
 

@@ -7,6 +7,7 @@
  *
  * SPDX-License-Identifier: ISC
  */
+#include <iomanip>
 #include <iostream>
 
 #include <gflags/gflags.h>
@@ -51,6 +52,31 @@ struct Frames2BitWriter {
 		if (std::is_same<ArchType, xilinx::Series7>::value ||
 		    std::is_same<ArchType, xilinx::UltraScale>::value ||
 		    std::is_same<ArchType, xilinx::UltraScalePlus>::value) {
+			// A frame address the part does not have would still be
+			// written, and every frame after it would land late.
+			// This happens when the frames file was made for a
+			// different part than --part_file describes.
+			auto not_in_part = frames.findFramesNotInPart(part);
+			for (auto& address : not_in_part) {
+				std::cerr << "Frame address 0x" << std::hex
+				          << std::setw(8) << std::setfill('0')
+				          << static_cast<uint32_t>(address)
+				          << std::dec << " is not in part file "
+				          << FLAGS_part_file << std::endl;
+			}
+			const bool frames_fit_part = not_in_part.empty();
+			if (!frames_fit_part) {
+				std::cerr
+				    << not_in_part.size()
+				    << " frame address(es) in "
+				    << FLAGS_frm_file
+				    << " are not in the part; is "
+				    << FLAGS_part_file
+				    << " the part the frames were made for?"
+				    << std::endl;
+				return 1;
+			}
+
 			// In case the frames input file is missing some frames
 			// that are in the tilegrid
 			frames.addMissingFrames(part);
@@ -77,6 +103,7 @@ struct Frames2BitWriter {
 		        "xc7frames2bit", FLAGS_output_file)) {
 			std::cerr << "Failed to write bitstream" << std::endl
 			          << "Exitting" << std::endl;
+			return 1;
 		}
 		return 0;
 	}
